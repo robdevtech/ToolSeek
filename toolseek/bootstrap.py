@@ -4,11 +4,16 @@
 FreeCAD's Gui.appendMenu / Accel from GetResources are unreliable for InitGui-only
 mods (items often never appear under Tools — NeoRibbon has the same gap). We:
   1. Register the commands
-  2. Directly add QActions under the live Tools QMenu
-  3. Re-add those actions whenever Tools is about to show (survives rebuilds)
+  2. Directly add QActions under the live Tools QMenu (actions parented to the
+     main window; Tools QMenu is re-resolved from menuBar() on every use)
+  3. Re-add those actions whenever Tools is about to show (survives rebuilds);
+     reconnect aboutToShow when NeoRibbon/FreeCAD destroys the QMenu
   4. Install an ApplicationShortcut QShortcut (default Ctrl+Space; user-configurable)
   5. Register Edit → Preferences → ToolSeek
   6. Reload the shortcut when Mod/ToolSeek preferences change
+
+Startup may race a Tools QMenu that is deleted mid-write; that is logged at
+PrintLog and retried — not a Report-view warning.
 
 Note: FreeCAD 1.1 Flatpak uses PySide6. QAction and QShortcut live in QtGui
 (not QtWidgets) under Qt6.
@@ -53,6 +58,11 @@ except ImportError:
         except ImportError:
             shiboken = None  # type: ignore
 
+try:
+    import sip  # type: ignore
+except ImportError:
+    sip = None  # type: ignore
+
 # Qt6 moved these from QtWidgets → QtGui; Qt5 still has them on QtWidgets.
 QAction = getattr(QtGui, "QAction", None) or getattr(QtWidgets, "QAction")
 QShortcut = getattr(QtGui, "QShortcut", None) or getattr(QtWidgets, "QShortcut")
@@ -64,7 +74,10 @@ _PREFS_ACTION_OBJECT_NAME = "ToolSeek_PrefsAction"
 _installed = False
 _reapply_pending = False
 _tools_about_to_show_hooked = False
-_menu_fail_logged = False
+_tools_action_hovered_hooked = False
+_hooked_tools_menu = None
+_hooked_tools_action = None
+_menu_race_logged = False
 _legacy_shortcut_cleared = False
 _prefs_observer = None
 _prefs_observer_attached = False
@@ -98,14 +111,33 @@ _ApplicationShortcut = _qt_attr(
 
 
 def _alive(obj) -> bool:
+    """True if *obj* is a live Qt wrapper (not a deleted C++ object)."""
     if obj is None:
         return False
-    if shiboken is None:
-        return True
-    try:
-        return bool(shiboken.isValid(obj))
-    except Exception:
-        return False
+    if shiboken is not None:
+        try:
+            return bool(shiboken.isValid(obj))
+        except Exception:
+            pass
+    if sip is not None:
+        try:
+            if hasattr(sip, "isdeleted"):
+                return not bool(sip.isdeleted(obj))
+            if hasattr(sip, "isValid"):
+                return bool(sip.isValid(obj))
+        except Exception:
+            pass
+    return True
+
+
+def _is_stale_menu_error(exc: BaseException) -> bool:
+    """True for NeoRibbon/FreeCAD QMenu rebuild races (wrapper already deleted)."""
+    text = str(exc).casefold()
+    return (
+        "already deleted" in text
+        or "internal c++ object" in text
+        or "wrapper" in text and "deleted" in text
+    )
 
 
 def _main_window():
@@ -163,30 +195,44 @@ def _register_preference_page() -> None:
             )
 
 
-def _find_tools_menu(mw):
-    """Return the live Tools QMenu from the main menu bar action text only."""
+def _find_tools_menu_action(mw):
+    """Return the live Tools QAction from menuBar() (never cache across calls)."""
     if not _alive(mw):
         return None
-    mb = mw.menuBar()
+    try:
+        mb = mw.menuBar()
+    except Exception:
+        return None
     if not _alive(mb):
         return None
     try:
         actions = list(mb.actions())
     except Exception as exc:  # noqa: BLE001
+        if _is_stale_menu_error(exc):
+            return None
         App.Console.PrintWarning(f"ToolSeek: menuBar.actions failed: {exc}\n")
         return None
     for action in actions:
         if not _alive(action):
             continue
         try:
-            if _norm(action.text()) != "tools":
-                continue
-            menu = action.menu()
+            if _norm(action.text()) == "tools":
+                return action
         except Exception:
             continue
-        if _alive(menu):
-            return menu
     return None
+
+
+def _find_tools_menu(mw):
+    """Return the live Tools QMenu from the main menu bar (fresh each call)."""
+    action = _find_tools_menu_action(mw)
+    if action is None:
+        return None
+    try:
+        menu = action.menu()
+    except Exception:
+        return None
+    return menu if _alive(menu) else None
 
 
 def _run_open_command():
@@ -208,6 +254,8 @@ def _run_prefs_command():
 
 
 def _action_present(tools, object_name: str, *text_prefixes: str) -> bool:
+    if not _alive(tools):
+        return False
     try:
         for action in list(tools.actions()):
             if not _alive(action):
@@ -228,7 +276,20 @@ def _action_present(tools, object_name: str, *text_prefixes: str) -> bool:
     return False
 
 
+def _find_named_action(mw, object_name: str):
+    """Find a ToolSeek QAction by object name (parented to main window)."""
+    if not _alive(mw):
+        return None
+    try:
+        action = mw.findChild(QAction, object_name)
+    except Exception:
+        return None
+    return action if _alive(action) else None
+
+
 def _insert_before_customize(tools, action) -> None:
+    if not _alive(tools) or not _alive(action):
+        raise RuntimeError("Tools menu or action already deleted")
     customize = None
     for candidate in list(tools.actions()):
         if not _alive(candidate):
@@ -248,60 +309,124 @@ def _open_shortcut_tip() -> str:
 
 
 def _update_tools_action_tip(mw) -> None:
-    tools = _find_tools_menu(mw)
-    if tools is None:
-        return
-    try:
-        for action in list(tools.actions()):
-            if not _alive(action):
-                continue
-            if action.objectName() == _ACTION_OBJECT_NAME:
-                action.setToolTip(_open_shortcut_tip())
-                return
-    except Exception:
-        return
+    action = _find_named_action(mw, _ACTION_OBJECT_NAME)
+    if action is None:
+        tools = _find_tools_menu(mw)
+        if tools is None:
+            return
+        try:
+            for candidate in list(tools.actions()):
+                if not _alive(candidate):
+                    continue
+                if candidate.objectName() == _ACTION_OBJECT_NAME:
+                    action = candidate
+                    break
+        except Exception:
+            return
+    if action is not None and _alive(action):
+        try:
+            action.setToolTip(_open_shortcut_tip())
+        except Exception:
+            return
+
+
+def _ensure_menu_action(
+    mw,
+    tools,
+    *,
+    object_name: str,
+    text: str,
+    tip: str,
+    on_trigger,
+    text_prefixes: tuple[str, ...],
+) -> bool:
+    """Ensure one Tools entry exists.
+
+    Parent the QAction to *mw* so NeoRibbon/FreeCAD menu rebuilds do not
+    destroy it; re-insert into the live Tools QMenu as needed.
+
+    Returns True only when a new QAction is created (not on silent re-insert).
+    """
+    if not _alive(tools):
+        return False
+
+    if _action_present(tools, object_name, *text_prefixes):
+        if object_name == _ACTION_OBJECT_NAME:
+            _update_tools_action_tip(mw)
+        return False
+
+    created = False
+    action = _find_named_action(mw, object_name)
+    if action is None or not _alive(action):
+        # Do not parent to the Tools QMenu — that object is often deleted/rebuilt.
+        action = QAction(text, mw)
+        action.setObjectName(object_name)
+        action.setToolTip(tip)
+        # Shortcut is owned by QShortcut — do not setShortcut on the action.
+        action.triggered.connect(on_trigger)
+        created = True
+    else:
+        try:
+            action.setText(text)
+            action.setToolTip(tip)
+        except Exception:
+            pass
+
+    # Menu may have been replaced between lookup and insert — re-resolve once.
+    live = _find_tools_menu(mw)
+    if live is None or not _alive(live):
+        return False
+    _insert_before_customize(live, action)
+    return created
 
 
 def _ensure_tools_action(mw) -> bool:
     """Add ToolSeek… / preferences under Tools via Qt (survives appendMenu loss)."""
-    global _menu_fail_logged
+    global _menu_race_logged
     tools = _find_tools_menu(mw)
-    if tools is None:
+    if tools is None or not _alive(tools):
         return False
 
     added_open = False
     added_prefs = False
 
     try:
-        if not _action_present(
-            tools, _ACTION_OBJECT_NAME, "toolseek…", "toolseek —", "command search"
-        ):
-            action = QAction("ToolSeek…", tools)
-            action.setObjectName(_ACTION_OBJECT_NAME)
-            action.setToolTip(_open_shortcut_tip())
-            # Shortcut is owned by QShortcut below — do not setShortcut on the action.
-            action.triggered.connect(_run_open_command)
-            _insert_before_customize(tools, action)
-            added_open = True
-        else:
-            _update_tools_action_tip(mw)
-
-        if not _action_present(
-            tools, _PREFS_ACTION_OBJECT_NAME, "toolseek preferences"
-        ):
-            prefs_action = QAction("ToolSeek preferences…", tools)
-            prefs_action.setObjectName(_PREFS_ACTION_OBJECT_NAME)
-            prefs_action.setToolTip("Open ToolSeek settings")
-            prefs_action.triggered.connect(_run_prefs_command)
-            _insert_before_customize(tools, prefs_action)
-            added_prefs = True
+        added_open = _ensure_menu_action(
+            mw,
+            tools,
+            object_name=_ACTION_OBJECT_NAME,
+            text="ToolSeek…",
+            tip=_open_shortcut_tip(),
+            on_trigger=_run_open_command,
+            text_prefixes=("toolseek…", "toolseek —", "command search"),
+        )
+        # Re-resolve after first insert; NeoRibbon may rebuild mid-flight.
+        tools = _find_tools_menu(mw)
+        if tools is None or not _alive(tools):
+            return False
+        added_prefs = _ensure_menu_action(
+            mw,
+            tools,
+            object_name=_PREFS_ACTION_OBJECT_NAME,
+            text="ToolSeek preferences…",
+            tip="Open ToolSeek settings",
+            on_trigger=_run_prefs_command,
+            text_prefixes=("toolseek preferences",),
+        )
     except Exception as exc:  # noqa: BLE001
-        if not _menu_fail_logged:
-            _menu_fail_logged = True
-            App.Console.PrintWarning(
-                f"ToolSeek: Tools menu not writable yet ({exc}); "
-                "will retry on Tools aboutToShow\n"
-            )
+        if _is_stale_menu_error(exc):
+            # Expected race while FreeCAD/NeoRibbon rebuilds Tools; aboutToShow
+            # and delayed reapply will finish the job. Keep Report view quiet.
+            if not _menu_race_logged:
+                _menu_race_logged = True
+                App.Console.PrintLog(
+                    "ToolSeek: Tools menu rebuild race; "
+                    "will retry on Tools aboutToShow\n"
+                )
+            return False
+        App.Console.PrintError(
+            f"ToolSeek: Tools menu injection failed: {exc}\n"
+        )
         return False
 
     if added_open:
@@ -313,31 +438,109 @@ def _ensure_tools_action(mw) -> bool:
     return True
 
 
+def _on_tools_menu_destroyed(*_args):
+    """Clear stale hook state when NeoRibbon/FreeCAD deletes the Tools QMenu."""
+    global _hooked_tools_menu, _tools_about_to_show_hooked
+    _hooked_tools_menu = None
+    _tools_about_to_show_hooked = False
+    # Reconnect once a replacement menu exists (workbench / ribbon settle).
+    _schedule_reapply(0)
+    _schedule_reapply(300)
+
+
 def _hook_tools_about_to_show(mw) -> None:
-    """Re-inject the menu item every time Tools opens (handles menu rebuilds)."""
-    global _tools_about_to_show_hooked
+    """Hook live Tools QMenu.aboutToShow; reconnect when the menu is replaced.
+
+    Also connects Tools QAction.hovered so we re-resolve after NeoRibbon swaps
+    the popup menu without waiting for the next workbenchActivated retry.
+    """
+    global _tools_about_to_show_hooked, _tools_action_hovered_hooked
+    global _hooked_tools_menu, _hooked_tools_action
+
+    tools_action = _find_tools_menu_action(mw)
+    if tools_action is not None and _alive(tools_action):
+        if (
+            _hooked_tools_action is None
+            or not _alive(_hooked_tools_action)
+            or _hooked_tools_action is not tools_action
+        ):
+            if _hooked_tools_action is not None and _alive(_hooked_tools_action):
+                try:
+                    _hooked_tools_action.hovered.disconnect(
+                        _on_tools_action_hovered
+                    )
+                except Exception:
+                    pass
+            try:
+                tools_action.hovered.connect(_on_tools_action_hovered)
+                _hooked_tools_action = tools_action
+                _tools_action_hovered_hooked = True
+            except Exception as exc:  # noqa: BLE001
+                if not _is_stale_menu_error(exc):
+                    App.Console.PrintWarning(
+                        f"ToolSeek: Tools action hovered hook failed: {exc}\n"
+                    )
+
     tools = _find_tools_menu(mw)
-    if tools is None:
+    if tools is None or not _alive(tools):
         return
-    if _tools_about_to_show_hooked:
-        # Menu object may have been replaced; reconnect if needed.
+
+    # Already connected to this exact live menu object.
+    if (
+        _tools_about_to_show_hooked
+        and _hooked_tools_menu is not None
+        and _alive(_hooked_tools_menu)
+        and _hooked_tools_menu is tools
+    ):
+        return
+
+    if _hooked_tools_menu is not None and _alive(_hooked_tools_menu):
         try:
-            tools.aboutToShow.disconnect(_on_tools_about_to_show)
+            _hooked_tools_menu.aboutToShow.disconnect(_on_tools_about_to_show)
         except Exception:
             pass
+        try:
+            _hooked_tools_menu.destroyed.disconnect(_on_tools_menu_destroyed)
+        except Exception:
+            pass
+
     try:
         tools.aboutToShow.connect(_on_tools_about_to_show)
+        try:
+            tools.destroyed.connect(_on_tools_menu_destroyed)
+        except Exception:
+            pass
+        _hooked_tools_menu = tools
         _tools_about_to_show_hooked = True
     except Exception as exc:  # noqa: BLE001
-        App.Console.PrintWarning(
-            f"ToolSeek: Tools.aboutToShow hook failed: {exc}\n"
-        )
+        _hooked_tools_menu = None
+        _tools_about_to_show_hooked = False
+        if _is_stale_menu_error(exc):
+            App.Console.PrintLog(
+                "ToolSeek: Tools.aboutToShow hook deferred (menu rebuild)\n"
+            )
+        else:
+            App.Console.PrintWarning(
+                f"ToolSeek: Tools.aboutToShow hook failed: {exc}\n"
+            )
 
 
-def _on_tools_about_to_show():
+def _on_tools_action_hovered():
+    """Tools title hovered: re-resolve menu and ensure our items + aboutToShow."""
     mw = _main_window()
     if mw is None:
         return
+    _hook_tools_about_to_show(mw)
+    _ensure_tools_action(mw)
+
+
+def _on_tools_about_to_show():
+    """Tools popup about to open — always re-resolve from menuBar first."""
+    mw = _main_window()
+    if mw is None:
+        return
+    # Do not reconnect aboutToShow here (signal is mid-emit). destroyed /
+    # hovered / _apply_ui handle hook refresh after menu rebuilds.
     _ensure_tools_action(mw)
 
 
