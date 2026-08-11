@@ -1,0 +1,37 @@
+# Bytecode / packaging
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Local / machine-specific FreeCAD and probe artifacts
+*.cfg
+user.cfg
+*.FCStd
+*.FCStd1
+scripts/smoke_probe_out.txt
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+.cursor/
+
+# Local install convenience (symlink targets / copies)
+Mod/

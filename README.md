@@ -1,0 +1,103 @@
+# ToolSeek
+
+Type-to-find FreeCAD commands — a small command palette (AutoCAD-style), opened with a hotkey.
+
+> Repo folder may still be named `FC_Search`; the FreeCAD Mod folder and user-facing name are **ToolSeek**.
+
+## Install
+
+Clone or symlink this project into FreeCAD’s **versioned** Mod folder as `ToolSeek`, then restart FreeCAD.
+
+FreeCAD 1.0+ uses a `v1-0` / `v1-1` subdirectory (not the old top-level `Mod` alone).
+
+| Install | Mod path |
+| --- | --- |
+| Linux (native/AppImage) | `~/.local/share/FreeCAD/v1-1/Mod/ToolSeek` |
+| Linux (Flatpak) | `~/.var/app/org.freecad.FreeCAD/data/FreeCAD/v1-1/Mod/ToolSeek` |
+| macOS | `~/Library/Application Support/FreeCAD/v1-1/Mod/ToolSeek` |
+| Windows | `%APPDATA%\FreeCAD\v1-1\Mod\ToolSeek` |
+
+Example (Flatpak FreeCAD 1.1):
+
+```bash
+ln -s /path/to/FC_Search ~/.var/app/org.freecad.FreeCAD/data/FreeCAD/v1-1/Mod/ToolSeek
+```
+
+The Mod folder name must be `ToolSeek` and must contain `Init.py` / `InitGui.py`.
+
+On startup, the Report view (**View → Panels → Report view**, show Messages) should include:
+
+- `ToolSeek: loaded (Ctrl+Space)`
+- `ToolSeek: added Tools → ToolSeek…`
+- `ToolSeek: installed Ctrl+Space shortcut`
+
+## Usage
+
+1. Press **Ctrl+Space** (or choose **Tools → ToolSeek…**).
+2. Type part of a command’s display name or internal id (e.g. `box`, `part fillet`, `line`).
+3. Use **↑ / ↓** to move, **Enter** to run, **Esc** to close.
+
+Keyboard shortcuts for each command appear right-aligned in the results list when FreeCAD exposes them.
+
+### Preferences
+
+Open **Edit → Preferences → ToolSeek**, or **Tools → ToolSeek preferences…**.
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| **Result style** | Icons | **Icons** = icons + labels; **Words** = labels only (no icons) |
+| **Allow fuzzy matching** | On | Small typos / subsequences still match (exact/prefix/word always rank higher) |
+| **Allow selection to switch workbench** | On | When off, other-workbench results still show and run, but without `activateWorkbench` |
+
+Stored under `User parameter:BaseApp/Preferences/Mod/ToolSeek`. Preferences are read when the palette opens (restart FreeCAD after installing the Mod; prefs changes apply on the next palette open).
+
+### Ranking
+
+Results prefer **menu labels** over internal command ids, and **whole-word / leading-word** hits over mid-string matches. Commands from the **active workbench** (by name prefix, e.g. `Sketcher_…`) are boosted so queries like `line` surface that workbench’s Line tool first.
+
+Lightweight **fuzzy** matching (when enabled) still finds near-misses, but exact, prefix, and word matches always rank above fuzzy hits.
+
+### Cross-workbench results
+
+Commands from another workbench stay selectable. They appear in a muted slate color with a `· Workbench` suffix (distinct from inactive grey). Running one best-effort **activates that workbench** first (unless disabled in preferences), then `Gui.runCommand`.
+
+Inactive commands (best-effort flag; `Command.isActive()` is never called) are listed in grey but can still be selected.
+
+### NeoRibbon / custom UI
+
+ToolSeek does **not** rely on FreeCAD’s `Gui.appendMenu` Accel alone. It:
+
+- injects **Tools → ToolSeek…** via Qt (so it still shows when `appendMenu` is ignored), and
+- installs a main-window **QShortcut** for Ctrl+Space.
+
+If NeoRibbon hides the menu bar, use **Ctrl+Space**, or temporarily show the menu bar / use the Python console: `Gui.runCommand("ToolSeek_Open")`.
+
+## Change the shortcut
+
+Default Ctrl+Space is a Qt shortcut owned by this addon (not FreeCAD Accel).
+
+To use a different FreeCAD-managed shortcut instead:
+
+1. **Tools → Customize… → Keyboard**
+2. Find **ToolSeek…** (or `ToolSeek_Open`)
+3. Assign any shortcut
+
+If you assign the same Ctrl+Space there, you may get a double-trigger (palette opens and closes). Prefer a different key, or leave Customize empty and keep the addon default.
+
+## What is indexed
+
+Only **commands currently registered** in FreeCAD when you open the palette (typically the active workbench plus previously loaded ones). Commands from workbenches you have never opened in this session may be missing until you switch to that workbench once.
+
+This addon does **not** search preferences, document objects, or menus.
+
+## Dev check
+
+Matcher ranking (no FreeCAD needed):
+
+```bash
+python -m unittest tests.test_matcher -v
+```
+
+## License
+
+LGPL-2.1-or-later
