@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -108,8 +109,31 @@ def _action_icon(action):
         return None
 
 
+def _qicon_type():
+    try:
+        from PySide import QtGui  # type: ignore
+    except ImportError:
+        try:
+            from PySide2 import QtGui  # type: ignore
+        except ImportError:
+            from PySide6 import QtGui  # type: ignore
+    return QtGui.QIcon
+
+
+def _icon_if_valid(icon):
+    if icon is not None and not (hasattr(icon, "isNull") and icon.isNull()):
+        return icon
+    return None
+
+
 def _resources_icon(cmd):
-    """Resolve Pixmap / icon from getInfo when the QAction has no icon."""
+    """Resolve Pixmap / icon from getInfo when the QAction has no icon.
+
+    Avoid ``Gui.getIcon`` for names that are not already cached or loadable
+    as a file/Qt resource. FreeCAD's BitmapFactory logs
+    ``Cannot find icon: …`` for misses (e.g. Part_PickCurveNet's leftover
+    Pixmap ``Test1``), which would spam the Report view on every palette open.
+    """
     info = _info_dict(cmd)
     pixmap = ""
     for key in ("pixmap", "Pixmap", "icon"):
@@ -119,16 +143,42 @@ def _resources_icon(cmd):
             break
     if not pixmap:
         return None
+
     try:
-        getter = getattr(Gui, "getIcon", None)
-        if callable(getter):
-            icon = getter(pixmap)
-            if icon is not None and not (
-                hasattr(icon, "isNull") and icon.isNull()
-            ):
-                return icon
+        QIcon = _qicon_type()
+    except Exception:
+        QIcon = None
+
+    # Absolute / relative filesystem path — quiet load.
+    try:
+        if os.path.isfile(pixmap) and QIcon is not None:
+            found = _icon_if_valid(QIcon(pixmap))
+            if found is not None:
+                return found
     except Exception:
         pass
+
+    # Qt resource path (e.g. :/icons/Part_Box.svg) — quiet load.
+    if QIcon is not None and pixmap.startswith(":"):
+        try:
+            found = _icon_if_valid(QIcon(pixmap))
+            if found is not None:
+                return found
+        except Exception:
+            pass
+
+    # Already in BitmapFactory cache — getIcon will not warn.
+    is_cached = getattr(Gui, "isIconCached", None)
+    if callable(is_cached):
+        try:
+            if is_cached(pixmap):
+                getter = getattr(Gui, "getIcon", None)
+                if callable(getter):
+                    return _icon_if_valid(getter(pixmap))
+        except Exception:
+            pass
+
+    # Do not call Gui.getIcon for uncached / unknown names.
     return None
 
 

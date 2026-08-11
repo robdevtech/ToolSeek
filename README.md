@@ -2,8 +2,6 @@
 
 Type-to-find FreeCAD commands — a small command palette (AutoCAD-style), opened with a hotkey.
 
-> Repo folder may still be named `FC_Search`; the FreeCAD Mod folder and user-facing name are **ToolSeek**.
-
 ## Screenshots
 
 ![ToolSeek command palette open, listing workbench commands](Images/ToolSeek_OpenDark.png)
@@ -30,7 +28,7 @@ FreeCAD 1.0+ uses a `v1-0` / `v1-1` subdirectory (not the old top-level `Mod` al
 Example (Flatpak FreeCAD 1.1):
 
 ```bash
-ln -s /path/to/FC_Search ~/.var/app/org.freecad.FreeCAD/data/FreeCAD/v1-1/Mod/ToolSeek
+ln -s /path/to/ToolSeek ~/.var/app/org.freecad.FreeCAD/data/FreeCAD/v1-1/Mod/ToolSeek
 ```
 
 The Mod folder name must be `ToolSeek` and must contain `Init.py` / `InitGui.py`.
