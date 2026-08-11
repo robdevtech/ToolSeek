@@ -20,13 +20,15 @@ class OpenCommandSearch:
     def GetResources(self):
         # Accel is intentionally omitted: FreeCAD often never wires Accel for
         # InitGui-only mods, and a QAction Accel would double-fire with our
-        # QShortcut (open then immediately close). Default Ctrl+Space is
-        # installed in bootstrap via QShortcut; Customize → Keyboard can still
-        # assign an *additional* FreeCAD Accel if desired.
+        # QShortcut (open then immediately close). The open hotkey is installed
+        # in bootstrap via QShortcut (prefs: OpenShortcut, default Ctrl+Space).
+        from . import prefs
+
+        sc = prefs.open_shortcut()
         return {
             "Pixmap": "edit-find",
             "MenuText": "ToolSeek…",
-            "ToolTip": "Search and run FreeCAD commands by typing (Ctrl+Space)",
+            "ToolTip": f"Search and run FreeCAD commands by typing ({sc})",
         }
 
     def Activated(self):

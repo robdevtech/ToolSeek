@@ -78,8 +78,55 @@ def run():
                     if sc.objectName() or "Space" in sc.key().toString()
                 ]
                 _log(f"relevant QShortcuts={named}")
-                ours = mw.findChild(QShortcut, "ToolSeek_CtrlSpaceShortcut")
+                ours = mw.findChild(QShortcut, "ToolSeek_OpenShortcut")
+                if ours is None:
+                    ours = mw.findChild(
+                        QShortcut, "ToolSeek_CtrlSpaceShortcut"
+                    )
                 _log(f"ToolSeek shortcut present={ours is not None}")
+                if ours is not None:
+                    _log(f"ToolSeek shortcut key={ours.key().toString()}")
+
+            # Shortcut recorder / preference page smoke (no modal UI).
+            try:
+                from toolseek.shortcut_edit import (
+                    create_shortcut_recorder,
+                    key_sequence_to_portable,
+                    recorded_shortcut_text,
+                    set_recorded_shortcut,
+                )
+                from toolseek.prefs_page import ToolSeekPreferencePage
+                from toolseek import prefs as ts_prefs
+
+                recorder = create_shortcut_recorder()
+                set_recorded_shortcut(recorder, "Alt+P")
+                got = recorded_shortcut_text(recorder)
+                _log(f"shortcut recorder class={type(recorder).__name__}")
+                _log(f"shortcut recorder Alt+P -> {got!r}")
+                _log(
+                    "shortcut recorder portable OK="
+                    f"{key_sequence_to_portable(got).casefold() == 'alt+p'}"
+                )
+                set_recorded_shortcut(recorder, ts_prefs.DEFAULT_OPEN_SHORTCUT)
+                _log(
+                    "shortcut recorder default="
+                    f"{recorded_shortcut_text(recorder)!r}"
+                )
+
+                page = ToolSeekPreferencePage()
+                page.loadSettings()
+                has_edit = hasattr(page, "open_shortcut")
+                _log(f"prefs page has recorder={has_edit}")
+                if has_edit:
+                    set_recorded_shortcut(
+                        page.open_shortcut, ts_prefs.DEFAULT_OPEN_SHORTCUT
+                    )
+                    _log(
+                        "prefs page recorder="
+                        f"{recorded_shortcut_text(page.open_shortcut)!r}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _log(f"shortcut recorder ERROR {type(exc).__name__}: {exc}")
         except Exception as exc:  # noqa: BLE001
             _log(f"ERROR {type(exc).__name__}: {exc}")
         finally:

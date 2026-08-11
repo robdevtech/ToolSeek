@@ -4,6 +4,16 @@ Type-to-find FreeCAD commands — a small command palette (AutoCAD-style), opene
 
 > Repo folder may still be named `FC_Search`; the FreeCAD Mod folder and user-facing name are **ToolSeek**.
 
+## Screenshots
+
+![ToolSeek command palette open, listing workbench commands](Images/ToolSeek_OpenDark.png)
+
+*Command palette open — type to filter FreeCAD commands.*
+
+![ToolSeek search results for “arra”, with Move / Array Transform selected](Images/Array.png)
+
+*Live search — partial match with shortcuts and muted other-workbench results.*
+
 ## Install
 
 Clone or symlink this project into FreeCAD’s **versioned** Mod folder as `ToolSeek`, then restart FreeCAD.
@@ -27,13 +37,13 @@ The Mod folder name must be `ToolSeek` and must contain `Init.py` / `InitGui.py`
 
 On startup, the Report view (**View → Panels → Report view**, show Messages) should include:
 
-- `ToolSeek: loaded (Ctrl+Space)`
+- `ToolSeek: loaded (Ctrl+Space)` (or your configured shortcut)
 - `ToolSeek: added Tools → ToolSeek…`
 - `ToolSeek: installed Ctrl+Space shortcut`
 
 ## Usage
 
-1. Press **Ctrl+Space** (or choose **Tools → ToolSeek…**).
+1. Press **Ctrl+Space** (or your configured shortcut), or choose **Tools → ToolSeek…**.
 2. Type part of a command’s display name or internal id (e.g. `box`, `part fillet`, `line`).
 3. Use **↑ / ↓** to move, **Enter** to run, **Esc** to close.
 
@@ -48,8 +58,11 @@ Open **Edit → Preferences → ToolSeek**, or **Tools → ToolSeek preferences�
 | **Result style** | Icons | **Icons** = icons + labels; **Words** = labels only (no icons) |
 | **Allow fuzzy matching** | On | Small typos / subsequences still match (exact/prefix/word always rank higher) |
 | **Allow selection to switch workbench** | On | When off, other-workbench results still show and run, but without `activateWorkbench` |
+| **Open palette shortcut** | Ctrl+Space | Click the field and press keys to record a chord (`OpenShortcut` pref). Reset restores the default. |
 
-Stored under `User parameter:BaseApp/Preferences/Mod/ToolSeek`. Preferences are read when the palette opens (restart FreeCAD after installing the Mod; prefs changes apply on the next palette open).
+Stored under `User parameter:BaseApp/Preferences/Mod/ToolSeek`. Palette display prefs are read when the palette opens; the open shortcut is applied at startup and reloaded when preferences are saved.
+
+Before applying a new shortcut, ToolSeek scans main-window **QActions**, **QShortcuts**, and FreeCAD command **Accel** bindings. If the chord is already taken, the change is refused, the previous ToolSeek shortcut is kept, and a warning is shown (dialog and/or Report view). ToolSeek’s own binder is excluded so rebinding is not a false positive.
 
 ### Ranking
 
@@ -68,21 +81,15 @@ Inactive commands (best-effort flag; `Command.isActive()` is never called) are l
 ToolSeek does **not** rely on FreeCAD’s `Gui.appendMenu` Accel alone. It:
 
 - injects **Tools → ToolSeek…** via Qt (so it still shows when `appendMenu` is ignored), and
-- installs a main-window **QShortcut** for Ctrl+Space.
+- installs a main-window **QShortcut** for the configured open hotkey.
 
-If NeoRibbon hides the menu bar, use **Ctrl+Space**, or temporarily show the menu bar / use the Python console: `Gui.runCommand("ToolSeek_Open")`.
+If NeoRibbon hides the menu bar, use the open shortcut, or temporarily show the menu bar / use the Python console: `Gui.runCommand("ToolSeek_Open")`.
 
 ## Change the shortcut
 
-Default Ctrl+Space is a Qt shortcut owned by this addon (not FreeCAD Accel).
+Prefer **Edit → Preferences → ToolSeek** (or **Tools → ToolSeek preferences…**), click **Open palette shortcut**, then press the desired keys (e.g. `Alt+P`). Use **Reset** to restore `Ctrl+Space` (still conflict-checked).
 
-To use a different FreeCAD-managed shortcut instead:
-
-1. **Tools → Customize… → Keyboard**
-2. Find **ToolSeek…** (or `ToolSeek_Open`)
-3. Assign any shortcut
-
-If you assign the same Ctrl+Space there, you may get a double-trigger (palette opens and closes). Prefer a different key, or leave Customize empty and keep the addon default.
+Avoid also assigning the same chord under **Tools → Customize… → Keyboard** for `ToolSeek_Open` — that Accel plus the addon QShortcut can double-trigger (palette opens and closes).
 
 ## What is indexed
 

@@ -11,6 +11,10 @@ PARAM_PATH = "User parameter:BaseApp/Preferences/Mod/ToolSeek"
 RESULT_STYLES = ("icons", "words")
 DEFAULT_RESULT_STYLE = "icons"
 
+# PrefLineEdit / SetString key for the palette open hotkey.
+PREF_OPEN_SHORTCUT = "OpenShortcut"
+DEFAULT_OPEN_SHORTCUT = "Ctrl+Space"
+
 
 def _group():
     return App.ParamGet(PARAM_PATH)
@@ -66,3 +70,36 @@ def switch_workbench() -> bool:
 
 def set_switch_workbench(value: bool) -> None:
     _group().SetBool("SwitchWorkbench", bool(value))
+
+
+def open_shortcut_stored() -> str:
+    """Raw stored shortcut string (may be empty)."""
+    try:
+        return str(_group().GetString(PREF_OPEN_SHORTCUT, DEFAULT_OPEN_SHORTCUT) or "")
+    except Exception:
+        try:
+            return str(
+                _group().GetASCII(PREF_OPEN_SHORTCUT, DEFAULT_OPEN_SHORTCUT) or ""
+            )
+        except Exception:
+            return DEFAULT_OPEN_SHORTCUT
+
+
+def open_shortcut() -> str:
+    """Effective open-palette shortcut; empty preference means the default."""
+    text = open_shortcut_stored().strip()
+    return text if text else DEFAULT_OPEN_SHORTCUT
+
+
+def set_open_shortcut(value: str) -> None:
+    """Persist shortcut text. Empty / whitespace stores the default explicitly."""
+    text = (value or "").strip() or DEFAULT_OPEN_SHORTCUT
+    try:
+        _group().SetString(PREF_OPEN_SHORTCUT, text)
+    except Exception:
+        _group().SetASCII(PREF_OPEN_SHORTCUT, text)
+
+
+def reset_open_shortcut() -> None:
+    """Restore the default open-palette shortcut preference."""
+    set_open_shortcut(DEFAULT_OPEN_SHORTCUT)

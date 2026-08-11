@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>440</width>
-    <height>200</height>
+    <width>480</width>
+    <height>260</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -90,6 +90,46 @@
     </widget>
    </item>
    <item>
+    <layout class="QHBoxLayout" name="openShortcutLayout">
+     <item>
+      <widget class="QLabel" name="labelOpenShortcut">
+       <property name="text">
+        <string>Open palette shortcut</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="Gui::PrefLineEdit" name="lineOpenShortcut">
+       <property name="toolTip">
+        <string>Click then press keys to record the open-palette shortcut (e.g. Ctrl+Space, Alt+P). ToolSeek refuses shortcuts that already belong to another FreeCAD action or command.</string>
+       </property>
+       <property name="placeholderText">
+        <string>Click then press keys</string>
+       </property>
+       <property name="text">
+        <string>Ctrl+Space</string>
+       </property>
+       <property name="prefEntry" stdset="0">
+        <cstring>OpenShortcut</cstring>
+       </property>
+       <property name="prefPath" stdset="0">
+        <cstring>Mod/ToolSeek</cstring>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="labelOpenShortcutHint">
+     <property name="text">
+      <string>Click the shortcut field, then press keys. Reset restores Ctrl+Space. Conflicting shortcuts are rejected and the previous ToolSeek binding is kept.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
@@ -113,6 +153,11 @@
   <customwidget>
    <class>Gui::PrefComboBox</class>
    <extends>QComboBox</extends>
+   <header>Gui/PrefWidgets.h</header>
+  </customwidget>
+  <customwidget>
+   <class>Gui::PrefLineEdit</class>
+   <extends>QLineEdit</extends>
    <header>Gui/PrefWidgets.h</header>
   </customwidget>
  </customwidgets>
