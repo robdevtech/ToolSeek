@@ -12,8 +12,9 @@ mods (items often never appear under Tools — NeoRibbon has the same gap). We:
   5. Register Edit → Preferences → ToolSeek
   6. Reload the shortcut when Mod/ToolSeek preferences change
 
-Startup may race a Tools QMenu that is deleted mid-write; that is logged at
-PrintLog and retried — not a Report-view warning.
+Startup / workbench / ribbon rebuilds may delete a Tools QMenu while our
+aboutToShow slot still runs. That race is handled silently (re-resolve from
+menuBar, reconnect). Only unexpected exceptions reach Report view as Error.
 
 Note: FreeCAD 1.1 Flatpak uses PySide6. QAction and QShortcut live in QtGui
 (not QtWidgets) under Qt6.
@@ -77,8 +78,8 @@ _tools_about_to_show_hooked = False
 _tools_action_hovered_hooked = False
 _hooked_tools_menu = None
 _hooked_tools_action = None
+_tools_receiver = None
 _menu_race_logged = False
-_legacy_shortcut_cleared = False
 _prefs_observer = None
 _prefs_observer_attached = False
 _ignore_pref_notify = False
@@ -132,11 +133,11 @@ def _alive(obj) -> bool:
 
 def _is_stale_menu_error(exc: BaseException) -> bool:
     """True for NeoRibbon/FreeCAD QMenu rebuild races (wrapper already deleted)."""
-    text = str(exc).casefold()
+    text = f"{exc!s} {exc!r} {type(exc).__name__}".casefold()
     return (
         "already deleted" in text
         or "internal c++ object" in text
-        or "wrapper" in text and "deleted" in text
+        or ("wrapper" in text and "deleted" in text)
     )
 
 
@@ -387,11 +388,8 @@ def _ensure_tools_action(mw) -> bool:
     if tools is None or not _alive(tools):
         return False
 
-    added_open = False
-    added_prefs = False
-
     try:
-        added_open = _ensure_menu_action(
+        _ensure_menu_action(
             mw,
             tools,
             object_name=_ACTION_OBJECT_NAME,
@@ -404,7 +402,7 @@ def _ensure_tools_action(mw) -> bool:
         tools = _find_tools_menu(mw)
         if tools is None or not _alive(tools):
             return False
-        added_prefs = _ensure_menu_action(
+        _ensure_menu_action(
             mw,
             tools,
             object_name=_PREFS_ACTION_OBJECT_NAME,
@@ -429,18 +427,126 @@ def _ensure_tools_action(mw) -> bool:
         )
         return False
 
-    if added_open:
-        App.Console.PrintMessage("ToolSeek: added Tools → ToolSeek…\n")
-    if added_prefs:
-        App.Console.PrintMessage(
-            "ToolSeek: added Tools → ToolSeek preferences…\n"
-        )
     return True
 
 
-def _on_tools_menu_destroyed(*_args):
+def _safe_disconnect(obj, signal_attr: str, slot) -> None:
+    """Disconnect *slot* from *obj.signal_attr* only if the wrapper is live."""
+    if obj is None or not _alive(obj):
+        return
+    try:
+        getattr(obj, signal_attr).disconnect(slot)
+    except Exception:
+        pass
+
+
+def _forget_tools_menu_hook(*, disconnect: bool) -> None:
+    """Drop cached Tools QMenu hook; optionally disconnect a still-live menu."""
+    global _hooked_tools_menu, _tools_about_to_show_hooked
+    menu = _hooked_tools_menu
+    receiver = _tools_receiver
+    if (
+        disconnect
+        and menu is not None
+        and _alive(menu)
+        and receiver is not None
+        and _alive(receiver)
+    ):
+        _safe_disconnect(menu, "aboutToShow", receiver.on_about_to_show)
+        _safe_disconnect(menu, "destroyed", receiver.on_destroyed)
+    _hooked_tools_menu = None
+    _tools_about_to_show_hooked = False
+
+
+class _ToolsMenuReceiver(QtCore.QObject):
+    """Owns Tools QMenu slots so QObject.sender() is available in aboutToShow."""
+
+    def on_about_to_show(self):
+        sender = None
+        try:
+            raw = self.sender()
+        except Exception:
+            raw = None
+        if raw is not None and _alive(raw):
+            sender = raw
+        try:
+            _on_tools_about_to_show(sender)
+        except Exception as exc:  # noqa: BLE001
+            if _is_stale_menu_error(exc):
+                _forget_tools_menu_hook(disconnect=False)
+                mw = _main_window()
+                if mw is not None:
+                    _hook_tools_about_to_show(mw)
+                else:
+                    _schedule_reapply(0)
+                return
+            App.Console.PrintError(
+                f"ToolSeek: Tools.aboutToShow handler failed: {exc}\n"
+            )
+
+    def on_destroyed(self, obj=None):
+        try:
+            _on_tools_menu_destroyed(obj)
+        except Exception:
+            pass
+
+
+def _ensure_tools_receiver(mw):
+    """Return a live QObject parented to the main window for menu slots."""
+    global _tools_receiver
+    if _tools_receiver is not None and _alive(_tools_receiver):
+        return _tools_receiver
+    if not _alive(mw):
+        return None
+    try:
+        _tools_receiver = _ToolsMenuReceiver(mw)
+    except Exception:
+        _tools_receiver = _ToolsMenuReceiver()
+    return _tools_receiver
+
+
+def _connect_tools_about_to_show(tools, receiver) -> bool:
+    """Connect aboutToShow/destroyed. False if *tools* vanished (rebuild race).
+
+    Unexpected connect failures are raised for the caller to PrintError.
+    """
+    global _hooked_tools_menu, _tools_about_to_show_hooked
+    if (
+        tools is None
+        or not _alive(tools)
+        or receiver is None
+        or not _alive(receiver)
+    ):
+        return False
+    try:
+        tools.aboutToShow.connect(receiver.on_about_to_show)
+        try:
+            if _alive(tools):
+                tools.destroyed.connect(receiver.on_destroyed)
+        except Exception:
+            pass
+        _hooked_tools_menu = tools
+        _tools_about_to_show_hooked = True
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _hooked_tools_menu = None
+        _tools_about_to_show_hooked = False
+        if _is_stale_menu_error(exc):
+            return False
+        raise
+
+
+def _on_tools_menu_destroyed(obj=None):
     """Clear stale hook state when NeoRibbon/FreeCAD deletes the Tools QMenu."""
     global _hooked_tools_menu, _tools_about_to_show_hooked
+    current = _hooked_tools_menu
+    # Ignore destroyed from an older menu if we already hooked the live one.
+    # Do not use `is obj` alone — PySide may wrap the same QObject twice.
+    if current is not None and _alive(current):
+        mw = _main_window()
+        live = _find_tools_menu(mw) if mw is not None else None
+        if live is not None and _alive(live) and current is live:
+            return
     _hooked_tools_menu = None
     _tools_about_to_show_hooked = False
     # Reconnect once a replacement menu exists (workbench / ribbon settle).
@@ -448,11 +554,14 @@ def _on_tools_menu_destroyed(*_args):
     _schedule_reapply(300)
 
 
-def _hook_tools_about_to_show(mw) -> None:
+def _hook_tools_about_to_show(mw, *, emitting=None) -> None:
     """Hook live Tools QMenu.aboutToShow; reconnect when the menu is replaced.
 
     Also connects Tools QAction.hovered so we re-resolve after NeoRibbon swaps
     the popup menu without waiting for the next workbenchActivated retry.
+
+    *emitting* is a QMenu whose aboutToShow is currently firing — do not
+    disconnect it (Qt forbids tearing down a signal mid-emit).
     """
     global _tools_about_to_show_hooked, _tools_action_hovered_hooked
     global _hooked_tools_menu, _hooked_tools_action
@@ -465,24 +574,29 @@ def _hook_tools_about_to_show(mw) -> None:
             or _hooked_tools_action is not tools_action
         ):
             if _hooked_tools_action is not None and _alive(_hooked_tools_action):
-                try:
-                    _hooked_tools_action.hovered.disconnect(
-                        _on_tools_action_hovered
-                    )
-                except Exception:
-                    pass
+                _safe_disconnect(
+                    _hooked_tools_action, "hovered", _on_tools_action_hovered
+                )
             try:
-                tools_action.hovered.connect(_on_tools_action_hovered)
-                _hooked_tools_action = tools_action
-                _tools_action_hovered_hooked = True
+                if _alive(tools_action):
+                    tools_action.hovered.connect(_on_tools_action_hovered)
+                    _hooked_tools_action = tools_action
+                    _tools_action_hovered_hooked = True
             except Exception as exc:  # noqa: BLE001
-                if not _is_stale_menu_error(exc):
-                    App.Console.PrintWarning(
+                if _is_stale_menu_error(exc):
+                    _hooked_tools_action = None
+                    _tools_action_hovered_hooked = False
+                else:
+                    App.Console.PrintError(
                         f"ToolSeek: Tools action hovered hook failed: {exc}\n"
                     )
 
     tools = _find_tools_menu(mw)
     if tools is None or not _alive(tools):
+        return
+
+    receiver = _ensure_tools_receiver(mw)
+    if receiver is None:
         return
 
     # Already connected to this exact live menu object.
@@ -494,54 +608,102 @@ def _hook_tools_about_to_show(mw) -> None:
     ):
         return
 
-    if _hooked_tools_menu is not None and _alive(_hooked_tools_menu):
-        try:
-            _hooked_tools_menu.aboutToShow.disconnect(_on_tools_about_to_show)
-        except Exception:
-            pass
-        try:
-            _hooked_tools_menu.destroyed.disconnect(_on_tools_menu_destroyed)
-        except Exception:
-            pass
-
-    try:
-        tools.aboutToShow.connect(_on_tools_about_to_show)
-        try:
-            tools.destroyed.connect(_on_tools_menu_destroyed)
-        except Exception:
-            pass
-        _hooked_tools_menu = tools
-        _tools_about_to_show_hooked = True
-    except Exception as exc:  # noqa: BLE001
+    old = _hooked_tools_menu
+    if old is not None and _alive(old) and old is not emitting:
+        _safe_disconnect(old, "aboutToShow", receiver.on_about_to_show)
+        _safe_disconnect(old, "destroyed", receiver.on_destroyed)
+    elif old is not None and not _alive(old):
+        # Dead wrapper — nothing safe to disconnect; drop it.
         _hooked_tools_menu = None
         _tools_about_to_show_hooked = False
-        if _is_stale_menu_error(exc):
-            App.Console.PrintLog(
-                "ToolSeek: Tools.aboutToShow hook deferred (menu rebuild)\n"
-            )
-        else:
-            App.Console.PrintWarning(
-                f"ToolSeek: Tools.aboutToShow hook failed: {exc}\n"
-            )
+
+    try:
+        if _connect_tools_about_to_show(tools, receiver):
+            return
+    except Exception as exc:  # noqa: BLE001
+        App.Console.PrintError(
+            f"ToolSeek: Tools.aboutToShow hook failed: {exc}\n"
+        )
+        return
+
+    # Connect raced a delete — try the replacement menu once, silently.
+    retry = _find_tools_menu(mw)
+    if retry is None or not _alive(retry) or retry is tools:
+        return
+    try:
+        _connect_tools_about_to_show(retry, receiver)
+    except Exception as exc:  # noqa: BLE001
+        App.Console.PrintError(
+            f"ToolSeek: Tools.aboutToShow hook failed: {exc}\n"
+        )
 
 
 def _on_tools_action_hovered():
     """Tools title hovered: re-resolve menu and ensure our items + aboutToShow."""
+    global _hooked_tools_action, _tools_action_hovered_hooked
     mw = _main_window()
     if mw is None:
         return
-    _hook_tools_about_to_show(mw)
-    _ensure_tools_action(mw)
+    if _hooked_tools_action is not None and not _alive(_hooked_tools_action):
+        _hooked_tools_action = None
+        _tools_action_hovered_hooked = False
+    try:
+        _hook_tools_about_to_show(mw)
+        _ensure_tools_action(mw)
+    except Exception as exc:  # noqa: BLE001
+        if _is_stale_menu_error(exc):
+            _schedule_reapply(0)
+            return
+        App.Console.PrintError(
+            f"ToolSeek: Tools action hovered handler failed: {exc}\n"
+        )
 
 
-def _on_tools_about_to_show():
-    """Tools popup about to open — always re-resolve from menuBar first."""
+def _on_tools_about_to_show(sender=None):
+    """Tools popup about to open — never use a deleted/stale QMenu."""
     mw = _main_window()
     if mw is None:
         return
-    # Do not reconnect aboutToShow here (signal is mid-emit). destroyed /
-    # hovered / _apply_ui handle hook refresh after menu rebuilds.
-    _ensure_tools_action(mw)
+
+    sender_ok = sender is not None and _alive(sender)
+    live = None
+    try:
+        live = _find_tools_menu(mw)
+    except Exception as exc:  # noqa: BLE001
+        if _is_stale_menu_error(exc):
+            live = None
+        else:
+            App.Console.PrintError(
+                f"ToolSeek: Tools menu lookup failed: {exc}\n"
+            )
+            return
+    live_ok = live is not None and _alive(live)
+
+    if not sender_ok:
+        # Known race: aboutToShow after FreeCAD/ribbon deleted the QMenu.
+        _forget_tools_menu_hook(disconnect=False)
+        if live_ok:
+            _hook_tools_about_to_show(mw)
+        else:
+            _schedule_reapply(0)
+            _schedule_reapply(300)
+            return
+    elif live_ok and sender is not live:
+        # Menu was replaced; hook the live one. Do not disconnect *sender*
+        # while its aboutToShow is still emitting.
+        _hook_tools_about_to_show(mw, emitting=sender)
+
+    if not live_ok:
+        return
+    try:
+        _ensure_tools_action(mw)
+    except Exception as exc:  # noqa: BLE001
+        if _is_stale_menu_error(exc):
+            _schedule_reapply(0)
+            return
+        App.Console.PrintError(
+            f"ToolSeek: Tools.aboutToShow handler failed: {exc}\n"
+        )
 
 
 def _find_toolseek_shortcut(mw):
@@ -565,14 +727,12 @@ def _find_toolseek_shortcut(mw):
 
 def _clear_legacy_fcsearch_shortcut(mw) -> None:
     """Remove only the pre-ToolSeek binder; never wipe unrelated shortcuts."""
-    global _legacy_shortcut_cleared
     if not _alive(mw):
         return
     try:
         shortcuts = list(mw.findChildren(QShortcut))
     except Exception:
         return
-    removed = False
     for sc in shortcuts:
         if not _alive(sc):
             continue
@@ -581,14 +741,8 @@ def _clear_legacy_fcsearch_shortcut(mw) -> None:
                 continue
             sc.setEnabled(False)
             sc.deleteLater()
-            removed = True
         except Exception:
             continue
-    if removed and not _legacy_shortcut_cleared:
-        _legacy_shortcut_cleared = True
-        App.Console.PrintMessage(
-            "ToolSeek: removed legacy FCSearch Ctrl+Space shortcut\n"
-        )
 
 
 def _clear_unnamed_shortcuts_for_sequence(mw, sequence: str) -> int:
@@ -728,11 +882,7 @@ def try_set_open_shortcut(
         return True
 
     # Unnamed Ctrl+Space (etc.) leftovers must not block first install.
-    cleared = _clear_unnamed_shortcuts_for_sequence(mw, desired)
-    if cleared:
-        App.Console.PrintMessage(
-            f"ToolSeek: cleared {cleared} unnamed '{desired}' shortcut(s)\n"
-        )
+    _clear_unnamed_shortcuts_for_sequence(mw, desired)
 
     try:
         conflicts = find_shortcut_conflicts(mw, desired)
@@ -772,14 +922,12 @@ def try_set_open_shortcut(
         sequence = QtGui.QKeySequence(desired)
         if existing is not None and _alive(existing):
             existing.setKey(sequence)
-            created = False
         else:
             shortcut = QShortcut(sequence, mw)
             shortcut.setObjectName(_SHORTCUT_OBJECT_NAME)
             shortcut.setContext(_ApplicationShortcut)
             shortcut.setAutoRepeat(False)
             shortcut.activated.connect(_run_open_command)
-            created = True
     except Exception as exc:  # noqa: BLE001
         App.Console.PrintError(f"ToolSeek: QShortcut install failed: {exc}\n")
         return False
@@ -794,8 +942,6 @@ def try_set_open_shortcut(
             _ignore_pref_notify = False
 
     _update_tools_action_tip(mw)
-    verb = "installed" if created else "updated"
-    App.Console.PrintMessage(f"ToolSeek: {verb} {desired} shortcut\n")
     return True
 
 
@@ -889,7 +1035,7 @@ def _apply_ui():
     _ensure_tools_action(mw)
     _hook_tools_about_to_show(mw)
     if not _ensure_shortcut(mw):
-        App.Console.PrintWarning(
+        App.Console.PrintLog(
             "ToolSeek: shortcut not ready yet; will retry\n"
         )
 
@@ -909,6 +1055,9 @@ def _schedule_reapply(delay_ms: int = 0):
         try:
             _apply_ui()
         except Exception as exc:  # noqa: BLE001
+            if _is_stale_menu_error(exc):
+                _schedule_reapply(300)
+                return
             App.Console.PrintError(f"ToolSeek: UI apply failed: {exc}\n")
 
     QtCore.QTimer.singleShot(delay_ms, _run)
@@ -956,7 +1105,3 @@ def install() -> None:
     # InitGui runs while menus are still being built; retry across startup.
     for delay in (0, 400, 1200, 3000):
         _schedule_reapply(delay)
-
-    App.Console.PrintMessage(
-        f"ToolSeek: loaded ({prefs.open_shortcut()})\n"
-    )

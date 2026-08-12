@@ -33,11 +33,7 @@ ln -s /path/to/ToolSeek ~/.var/app/org.freecad.FreeCAD/data/FreeCAD/v1-1/Mod/Too
 
 The Mod folder name must be `ToolSeek` and must contain `Init.py` / `InitGui.py`.
 
-On startup, the Report view (**View → Panels → Report view**, show Messages) should include:
-
-- `ToolSeek: loaded (Ctrl+Space)` (or your configured shortcut)
-- `ToolSeek: added Tools → ToolSeek…`
-- `ToolSeek: installed Ctrl+Space shortcut`
+A clean start stays quiet in Report view. Failures use **Error**; shortcut conflicts and other real problems use **Warning**.
 
 ## Usage
 
