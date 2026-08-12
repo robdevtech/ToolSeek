@@ -31,7 +31,7 @@ Example (Flatpak FreeCAD 1.1):
 ln -s /path/to/ToolSeek ~/.var/app/org.freecad.FreeCAD/data/FreeCAD/v1-1/Mod/ToolSeek
 ```
 
-The Mod folder name must be `ToolSeek` and must contain `Init.py` / `InitGui.py`.
+The Mod folder name must be `ToolSeek`. This addon uses the modern namespaced layout: FreeCAD loads `freecad/ToolSeek/__init__.py` and (in GUI mode) `freecad/ToolSeek/init_gui.py`. Symlink the **repository root** (the directory that contains `package.xml` and `freecad/`), not an inner package folder.
 
 A clean start stays quiet in Report view. Failures use **Error**; shortcut conflicts and other real problems use **Warning**.
 

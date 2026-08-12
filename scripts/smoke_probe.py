@@ -89,14 +89,14 @@ def run():
 
             # Shortcut recorder / preference page smoke (no modal UI).
             try:
-                from toolseek.shortcut_edit import (
+                from freecad.ToolSeek.shortcut_edit import (
                     create_shortcut_recorder,
                     key_sequence_to_portable,
                     recorded_shortcut_text,
                     set_recorded_shortcut,
                 )
-                from toolseek.prefs_page import ToolSeekPreferencePage
-                from toolseek import prefs as ts_prefs
+                from freecad.ToolSeek.prefs_page import ToolSeekPreferencePage
+                from freecad.ToolSeek import prefs as ts_prefs
 
                 recorder = create_shortcut_recorder()
                 set_recorded_shortcut(recorder, "Alt+P")

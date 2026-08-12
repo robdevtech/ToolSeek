@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""GUI bootstrap for ToolSeek."""
+"""GUI bootstrap for ToolSeek (FreeCAD imports freecad.ToolSeek.init_gui)."""
 
 import FreeCAD as App
 
 try:
-    from toolseek.bootstrap import install
+    from freecad.ToolSeek.bootstrap import install
 
     install()
 except Exception as exc:

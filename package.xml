@@ -2,23 +2,23 @@
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>ToolSeek</name>
   <description>Type-to-find FreeCAD commands (command palette). Default shortcut: Ctrl+Space.</description>
-  <version>0.2.2</version>
+  <version>0.2.3</version>
   <date>2026-08-11</date>
   <maintainer email="therobdev@pm.me">therobdev</maintainer>
   <license file="LICENSE">LGPL-2.1-or-later</license>
-  <icon>resources/icon.svg</icon>
+  <icon>freecad/ToolSeek/resources/icon.svg</icon>
   <url type="repository" branch="main">https://github.com/robdevtech/ToolSeek</url>
   <url type="readme">https://github.com/robdevtech/ToolSeek/blob/main/README.md</url>
   <content>
-    <!-- Not a FreeCAD workbench — InitGui-only Mod (command palette). -->
-    <!-- Kept as <workbench> for Addon Manager / NeoRibbon compatibility. -->
-    <workbench>
+    <!-- InitGui-only Mod (command palette), not a workbench. -->
+    <other>
+      <name>ToolSeek</name>
       <subdirectory>./</subdirectory>
       <tag>search</tag>
       <tag>commands</tag>
       <tag>palette</tag>
       <tag>toolseek</tag>
       <freecadmin>1.1.0</freecadmin>
-    </workbench>
+    </other>
   </content>
 </package>

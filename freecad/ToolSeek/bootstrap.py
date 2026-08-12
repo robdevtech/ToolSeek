@@ -155,10 +155,7 @@ def _norm(text: str) -> str:
 
 
 def _resources_dir() -> str:
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "resources",
-    )
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
 
 
 def _register_preference_page() -> None:
@@ -1069,7 +1066,7 @@ def _on_workbench_activated(_name: str = ""):
 
 
 def install() -> None:
-    """Called once from InitGui.py."""
+    """Called once from freecad.ToolSeek.init_gui."""
     global _installed
     if _installed:
         return
@@ -1102,6 +1099,6 @@ def install() -> None:
                 f"ToolSeek: could not connect workbenchActivated: {exc}\n"
             )
 
-    # InitGui runs while menus are still being built; retry across startup.
+    # init_gui runs while menus are still being built; retry across startup.
     for delay in (0, 400, 1200, 3000):
         _schedule_reapply(delay)

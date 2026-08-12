@@ -27,7 +27,7 @@ except ImportError:
 
 def _ui_path() -> str:
     return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        os.path.dirname(os.path.abspath(__file__)),
         "resources",
         "ui",
         "preferences.ui",

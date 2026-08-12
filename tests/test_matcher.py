@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""Offline unit checks for toolseek.matcher (no FreeCAD runtime required)."""
+"""Offline unit checks for freecad.ToolSeek.matcher (no FreeCAD runtime required)."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from toolseek.indexer import CommandInfo, _humanize_command_name  # noqa: E402
-from toolseek.matcher import filter_commands, score  # noqa: E402
+from freecad.ToolSeek.indexer import CommandInfo, _humanize_command_name  # noqa: E402
+from freecad.ToolSeek.matcher import filter_commands, score  # noqa: E402
 
 
 def _cmd(
