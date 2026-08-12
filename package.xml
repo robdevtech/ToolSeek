@@ -2,11 +2,13 @@
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>ToolSeek</name>
   <description>Type-to-find FreeCAD commands (command palette). Default shortcut: Ctrl+Space.</description>
-  <version>0.2.3</version>
+  <version>0.2.4</version>
   <date>2026-08-11</date>
   <maintainer email="therobdev@pm.me">therobdev</maintainer>
+  <!-- Code: LGPL (LICENSE for Addon Manager; LICENSE-Code is the Academy twin, same text). Assets: CC-BY-4.0. -->
   <license file="LICENSE">LGPL-2.1-or-later</license>
-  <icon>freecad/ToolSeek/resources/icon.svg</icon>
+  <license file="LICENSE-Assets">CC-BY-4.0</license>
+  <icon>Resources/Icons/Logo.svg</icon>
   <url type="repository" branch="main">https://github.com/robdevtech/ToolSeek</url>
   <url type="readme">https://github.com/robdevtech/ToolSeek/blob/main/README.md</url>
   <content>

@@ -4,11 +4,11 @@ Type-to-find FreeCAD commands — a small command palette (AutoCAD-style), opene
 
 ## Screenshots
 
-![ToolSeek command palette open, listing workbench commands](Images/ToolSeek_OpenDark.png)
+![ToolSeek command palette open, listing workbench commands](Resources/Media/ToolSeek_OpenDark.png)
 
 *Command palette open — type to filter FreeCAD commands.*
 
-![ToolSeek search results for “arra”, with Move / Array Transform selected](Images/Array.png)
+![ToolSeek search results for “arra”, with Move / Array Transform selected](Resources/Media/Array.png)
 
 *Live search — partial match with shortcuts and muted other-workbench results.*
 
@@ -99,6 +99,17 @@ Matcher ranking (no FreeCAD needed):
 python -m unittest tests.test_matcher -v
 ```
 
+Optional packaging / typing deps (see `pyproject.toml`):
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes (Keep a Changelog).
+
 ## License
 
-LGPL-2.1-or-later
+- **Code** (`LICENSE`, `LICENSE-Code`): [LGPL-2.1-or-later](LICENSE)
+- **Assets** (`LICENSE-Assets`) — icons under `Resources/` / `freecad/ToolSeek/resources/`, and screenshots under `Resources/Media/` (and `Images/`): [CC-BY-4.0](LICENSE-Assets)

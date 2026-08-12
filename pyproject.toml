@@ -1,0 +1,21 @@
+# ToolSeek — FreeCAD command palette addon
+
+[project]
+name = "ToolSeek"
+version = "0.2.4"
+description = "Type-to-find FreeCAD commands (command palette). Default shortcut: Ctrl+Space."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "LGPL-2.1-or-later" }
+authors = [{ name = "therobdev", email = "therobdev@pm.me" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "freecad-stubs>=1.0.21",
+    "pytest>=8.0",
+]
+
+[project.urls]
+Repository = "https://github.com/robdevtech/ToolSeek"
+Changelog = "https://github.com/robdevtech/ToolSeek/blob/main/CHANGELOG.md"
