@@ -10,7 +10,8 @@
   <license file="LICENSE-Assets">CC-BY-4.0</license>
   <icon>Resources/Icons/Logo.svg</icon>
   <url type="repository" branch="main">https://github.com/robdevtech/ToolSeek</url>
-  <url type="readme">https://github.com/robdevtech/ToolSeek/blob/main/README.md</url>
+  <url type="readme">https://raw.githubusercontent.com/robdevtech/ToolSeek/main/README.md</url>
+  <freecadmin>1.1.0</freecadmin>
   <content>
     <!-- InitGui-only Mod (command palette), not a workbench. -->
     <other>
@@ -20,7 +21,6 @@
       <tag>commands</tag>
       <tag>palette</tag>
       <tag>toolseek</tag>
-      <freecadmin>1.1.0</freecadmin>
     </other>
   </content>
 </package>
