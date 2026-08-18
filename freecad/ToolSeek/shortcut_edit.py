@@ -12,9 +12,19 @@ except ImportError:
         from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
 
 from . import prefs
-from .shortcut_conflicts import normalize_shortcut
+from .shortcut_conflicts import (
+    find_shortcut_conflicts,
+    normalize_shortcut,
+    sequences_match,
+)
 
 QKeySequenceEdit = getattr(QtWidgets, "QKeySequenceEdit", None)
+QTimer = QtCore.QTimer
+QMessageBox = QtWidgets.QMessageBox
+
+_MODIFIER_TOKENS = frozenset(
+    {"ctrl", "control", "shift", "alt", "meta", "cmd", "command"}
+)
 
 
 def key_sequence_to_portable(sequence) -> str:
@@ -58,28 +68,48 @@ def recorded_shortcut_text(edit) -> str:
         return ""
 
 
-def set_recorded_shortcut(edit, text: str) -> None:
+def set_recorded_shortcut(edit, text: str, *, validate: bool = False) -> None:
     """Show *text* (or the default) in a recorder widget."""
     value = (text or "").strip() or prefs.DEFAULT_OPEN_SHORTCUT
     if edit is None:
         return
-    if QKeySequenceEdit is not None and isinstance(edit, QKeySequenceEdit):
-        try:
-            edit.setKeySequence(QtGui.QKeySequence(value))
-            return
-        except Exception:
-            pass
+    setattr(edit, "_suppress_conflict_check", True)
     try:
-        edit.setText(value)
-    except Exception:
-        return
+        if QKeySequenceEdit is not None and isinstance(edit, QKeySequenceEdit):
+            try:
+                edit.setKeySequence(QtGui.QKeySequence(value))
+            except Exception:
+                try:
+                    edit.setText(value)
+                except Exception:
+                    return
+        else:
+            try:
+                edit.setText(value)
+            except Exception:
+                return
+        if not validate:
+            edit._accepted_shortcut = recorded_shortcut_text(edit) or value
+    finally:
+        setattr(edit, "_suppress_conflict_check", False)
+    if validate:
+        _validate_recorder(edit, interactive=True, defer=False)
+
+
+def _is_incomplete_chord(text: str) -> bool:
+    parts = [
+        part.strip().casefold()
+        for part in normalize_shortcut(text).replace("-", "+").split("+")
+        if part.strip()
+    ]
+    return bool(parts) and all(part in _MODIFIER_TOKENS for part in parts)
 
 
 def _configure_key_sequence_edit(edit) -> None:
     tip = (
         "Click this field, then press the key combination that should open "
         "the palette (e.g. Ctrl+Space, Alt+P). "
-        "ToolSeek will not override an existing FreeCAD shortcut."
+        "A shortcut already used elsewhere is rejected immediately."
     )
     try:
         edit.setToolTip(tip)
@@ -96,6 +126,122 @@ def _configure_key_sequence_edit(edit) -> None:
                 setter(*args)
             except Exception:
                 pass
+
+
+def _conflicts_for(edit, seq: str) -> list[str]:
+    conflicts: list[str] = []
+    seen: set[str] = set()
+
+    def _add(label: str) -> None:
+        key = label.casefold()
+        if not label or key in seen:
+            return
+        seen.add(key)
+        conflicts.append(label)
+
+    try:
+        import FreeCADGui as Gui
+
+        for label in find_shortcut_conflicts(Gui.getMainWindow(), seq) or []:
+            _add(label)
+    except Exception:
+        pass
+    extra = getattr(edit, "_extra_conflicts", None)
+    if callable(extra):
+        try:
+            for label in extra(seq) or []:
+                _add(str(label))
+        except Exception:
+            pass
+    return conflicts
+
+
+def _warn_live_conflict(edit, seq: str, conflicts: list[str]) -> None:
+    title = getattr(edit, "_shortcut_guard_title", "ToolSeek")
+    detail = "; ".join(conflicts[:8])
+    try:
+        import FreeCAD as App
+
+        App.Console.PrintWarning(
+            f"{title}: shortcut '{seq}' is already used ({detail}); "
+            "keeping the previous shortcut.\n"
+        )
+    except Exception:
+        pass
+    lines = "\n".join(f"• {c}" for c in conflicts[:12])
+    if len(conflicts) > 12:
+        lines += f"\n• …and {len(conflicts) - 12} more"
+    parent = None
+    try:
+        parent = edit.window() if edit is not None else None
+    except Exception:
+        parent = None
+    try:
+        QMessageBox.warning(
+            parent,
+            title,
+            (
+                f"Cannot use shortcut “{seq}”.\n\n"
+                "It is already used:\n"
+                f"{lines}\n\n"
+                "The previous shortcut was kept."
+            ),
+        )
+    except Exception:
+        pass
+
+
+def _revert_recorder(edit) -> None:
+    fallback = (
+        getattr(edit, "_accepted_shortcut", "") or prefs.DEFAULT_OPEN_SHORTCUT
+    )
+    set_recorded_shortcut(edit, fallback, validate=False)
+
+
+def _validate_recorder(edit, *, interactive: bool, defer: bool) -> bool:
+    if edit is None or getattr(edit, "_suppress_conflict_check", False):
+        return True
+    seq = recorded_shortcut_text(edit)
+    if not seq or _is_incomplete_chord(seq):
+        return True
+    accepted = getattr(edit, "_accepted_shortcut", "") or ""
+    if accepted and sequences_match(seq, accepted):
+        return True
+    conflicts = _conflicts_for(edit, seq)
+    if not conflicts:
+        edit._accepted_shortcut = seq
+        return True
+
+    _revert_recorder(edit)
+
+    def _dialog() -> None:
+        try:
+            if interactive:
+                _warn_live_conflict(edit, seq, conflicts)
+        finally:
+            setattr(edit, "_conflict_reject_pending", False)
+
+    if not interactive:
+        return False
+    if defer:
+        if getattr(edit, "_conflict_reject_pending", False):
+            return False
+        edit._conflict_reject_pending = True
+        QTimer.singleShot(0, _dialog)
+        return False
+    _dialog()
+    return False
+
+
+def _attach_live_conflict_guard(edit) -> None:
+    edit._shortcut_guard_title = "ToolSeek"
+    edit._shortcut_default = prefs.DEFAULT_OPEN_SHORTCUT
+    if not getattr(edit, "_accepted_shortcut", ""):
+        edit._accepted_shortcut = recorded_shortcut_text(edit) or prefs.DEFAULT_OPEN_SHORTCUT
+    if hasattr(edit, "keySequenceChanged"):
+        edit.keySequenceChanged.connect(
+            lambda *_args: _validate_recorder(edit, interactive=True, defer=True)
+        )
 
 
 class _FallbackKeySequenceEdit(QtWidgets.QLineEdit):
@@ -165,6 +311,7 @@ class _FallbackKeySequenceEdit(QtWidgets.QLineEdit):
         portable = key_sequence_to_portable(seq)
         if portable:
             self.setText(portable)
+            _validate_recorder(self, interactive=True, defer=True)
         event.accept()
 
 
@@ -173,8 +320,10 @@ def create_shortcut_recorder(parent=None):
     if QKeySequenceEdit is not None:
         edit = QKeySequenceEdit(parent)
         _configure_key_sequence_edit(edit)
-        return edit
-    return _FallbackKeySequenceEdit(parent)
+    else:
+        edit = _FallbackKeySequenceEdit(parent)
+    _attach_live_conflict_guard(edit)
+    return edit
 
 
 def create_reset_shortcut_button(parent=None) -> QtWidgets.QPushButton:

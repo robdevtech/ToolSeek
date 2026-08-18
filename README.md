@@ -56,7 +56,7 @@ Open **Edit → Preferences → ToolSeek**, or **Tools → ToolSeek preferences�
 
 Stored under `User parameter:BaseApp/Preferences/Mod/ToolSeek`. Palette display prefs are read when the palette opens; the open shortcut is applied at startup and reloaded when preferences are saved.
 
-Before applying a new shortcut, ToolSeek scans main-window **QActions**, **QShortcuts**, and FreeCAD command **Accel** bindings. If the chord is already taken, the change is refused, the previous ToolSeek shortcut is kept, and a warning is shown (dialog and/or Report view). ToolSeek’s own binder is excluded so rebinding is not a false positive.
+Before applying a new shortcut — and as soon as you press a chord in the recorder — ToolSeek scans main-window **QActions**, **QShortcuts**, and FreeCAD command **Accel** bindings. If the chord is already taken, it is refused immediately, the previous ToolSeek shortcut is kept, and a warning is shown (dialog and Report view). ToolSeek’s own binder is excluded so rebinding is not a false positive.
 
 ### Ranking
 
@@ -81,7 +81,7 @@ If NeoRibbon hides the menu bar, use the open shortcut, or temporarily show the 
 
 ## Change the shortcut
 
-Prefer **Edit → Preferences → ToolSeek** (or **Tools → ToolSeek preferences…**), click **Open palette shortcut**, then press the desired keys (e.g. `Alt+P`). Use **Reset** to restore `Ctrl+Space` (still conflict-checked).
+Prefer **Edit → Preferences → ToolSeek** (or **Tools → ToolSeek preferences…**), click **Open palette shortcut**, then press the desired keys (e.g. `Alt+P`). A chord already used elsewhere is rejected immediately. Use **Reset** to restore `Ctrl+Space` (still conflict-checked).
 
 Avoid also assigning the same chord under **Tools → Customize… → Keyboard** for `ToolSeek_Open` — that Accel plus the addon QShortcut can double-trigger (palette opens and closes).
 

@@ -83,17 +83,21 @@ class ToolSeekPreferencePage:
                 hint.setText(
                     "Click the shortcut field, then press keys. "
                     "Reset restores Ctrl+Space. "
-                    "Conflicting shortcuts are rejected and the previous "
-                    "ToolSeek binding is kept."
+                    "A shortcut already used elsewhere is rejected immediately."
                 )
             except Exception:
                 pass
 
     def _reset_shortcut_field(self) -> None:
-        set_recorded_shortcut(self.open_shortcut, prefs.DEFAULT_OPEN_SHORTCUT)
+        set_recorded_shortcut(
+            self.open_shortcut, prefs.DEFAULT_OPEN_SHORTCUT, validate=True
+        )
         if self._pref_line is not None:
             try:
-                self._pref_line.setText(prefs.DEFAULT_OPEN_SHORTCUT)
+                self._pref_line.setText(
+                    recorded_shortcut_text(self.open_shortcut)
+                    or prefs.DEFAULT_OPEN_SHORTCUT
+                )
             except Exception:
                 pass
 

@@ -76,8 +76,8 @@ class PreferencesDialog(QtWidgets.QDialog):
         hint = QtWidgets.QLabel(
             "These settings are also available under "
             "Edit → Preferences → ToolSeek. "
-            "Shortcut changes are checked for conflicts with existing "
-            "FreeCAD bindings before they are applied."
+            "A shortcut already used elsewhere is rejected as soon as "
+            "you press it."
         )
         hint.setWordWrap(True)
 
@@ -96,7 +96,9 @@ class PreferencesDialog(QtWidgets.QDialog):
         self._load()
 
     def _reset_shortcut_field(self) -> None:
-        set_recorded_shortcut(self.open_shortcut, prefs.DEFAULT_OPEN_SHORTCUT)
+        set_recorded_shortcut(
+            self.open_shortcut, prefs.DEFAULT_OPEN_SHORTCUT, validate=True
+        )
 
     def _load(self) -> None:
         style = prefs.result_style()

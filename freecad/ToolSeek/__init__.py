@@ -5,4 +5,4 @@ Loaded as freecad.ToolSeek (modern namespaced addon layout).
 Console / non-GUI FreeCAD imports this package; GUI work is in init_gui.py.
 """
 
-__version__ = "0.2.4"
+__version__ = "0.3.0"
