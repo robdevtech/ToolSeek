@@ -2,7 +2,7 @@
 
 [project]
 name = "ToolSeek"
-version = "0.3.0"
+version = "0.3.1"
 description = "Type-to-find FreeCAD commands (command palette). Default shortcut: Ctrl+Space."
 requires-python = ">=3.10"
 readme = "README.md"

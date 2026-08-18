@@ -5,6 +5,12 @@ All notable changes to ToolSeek are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-17
+
+### Fixed
+
+- Preferences **Reset** restores Ctrl+Space even when ToolSeek already owns that chord or FreeCAD left an unnamed Ctrl+Space QShortcut. Real third-party conflicts (e.g. Ctrl+N) are still refused.
+
 ## [0.3.0] - 2026-08-17
 
 Tested stable release after the 0.2.x Addon Academy layout, quieter startup, Tools menu race hardening, and packaging extras.
@@ -57,6 +63,7 @@ Tested stable release after the 0.2.x Addon Academy layout, quieter startup, Too
 - Qt Tools menu injection and main-window `QShortcut` so NeoRibbon / custom UIs still get a reliable open path.
 - README screenshots under `Images/`.
 
+[0.3.1]: https://github.com/robdevtech/ToolSeek/releases/tag/v0.3.1
 [0.3.0]: https://github.com/robdevtech/ToolSeek/releases/tag/v0.3.0
 [0.2.4]: https://github.com/robdevtech/ToolSeek/releases/tag/v0.2.4
 [0.2.3]: https://github.com/robdevtech/ToolSeek/releases/tag/v0.2.3

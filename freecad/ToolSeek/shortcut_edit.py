@@ -13,6 +13,7 @@ except ImportError:
 
 from . import prefs
 from .shortcut_conflicts import (
+    clear_unnamed_shortcuts_for_sequence,
     find_shortcut_conflicts,
     normalize_shortcut,
     sequences_match,
@@ -96,6 +97,22 @@ def set_recorded_shortcut(edit, text: str, *, validate: bool = False) -> None:
         _validate_recorder(edit, interactive=True, defer=False)
 
 
+def reset_recorded_shortcut(edit) -> None:
+    """Restore the default open shortcut, allowing ToolSeek to reclaim it.
+
+    Clears unnamed leftover QShortcuts for the default chord first (same as
+    startup install) so Reset is not rolled back as a false conflict.
+    """
+    default = prefs.DEFAULT_OPEN_SHORTCUT
+    try:
+        import FreeCADGui as Gui
+
+        clear_unnamed_shortcuts_for_sequence(Gui.getMainWindow(), default)
+    except Exception:
+        pass
+    set_recorded_shortcut(edit, default, validate=True)
+
+
 def _is_incomplete_chord(text: str) -> bool:
     parts = [
         part.strip().casefold()
@@ -142,7 +159,10 @@ def _conflicts_for(edit, seq: str) -> list[str]:
     try:
         import FreeCADGui as Gui
 
-        for label in find_shortcut_conflicts(Gui.getMainWindow(), seq) or []:
+        mw = Gui.getMainWindow()
+        for label in (
+            find_shortcut_conflicts(mw, seq, ignore_objects=(edit,)) or []
+        ):
             _add(label)
     except Exception:
         pass
@@ -207,6 +227,17 @@ def _validate_recorder(edit, *, interactive: bool, defer: bool) -> bool:
     accepted = getattr(edit, "_accepted_shortcut", "") or ""
     if accepted and sequences_match(seq, accepted):
         return True
+    # Self-rebind: chord already owned by ToolSeek (Reset to default while
+    # the binder is still on Ctrl+Space, or re-recording the live shortcut).
+    try:
+        from . import bootstrap
+
+        applied = getattr(bootstrap, "_applied_shortcut", "") or ""
+        if applied and sequences_match(seq, applied):
+            edit._accepted_shortcut = seq
+            return True
+    except Exception:
+        pass
     conflicts = _conflicts_for(edit, seq)
     if not conflicts:
         edit._accepted_shortcut = seq
@@ -322,6 +353,10 @@ def create_shortcut_recorder(parent=None):
         _configure_key_sequence_edit(edit)
     else:
         edit = _FallbackKeySequenceEdit(parent)
+    try:
+        edit.setObjectName("ToolSeek_ShortcutRecorder")
+    except Exception:
+        pass
     _attach_live_conflict_guard(edit)
     return edit
 

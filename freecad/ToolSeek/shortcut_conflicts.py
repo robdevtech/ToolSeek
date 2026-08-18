@@ -22,6 +22,7 @@ TOOLSEEK_SHORTCUT_OBJECT_NAMES = frozenset(
         "ToolSeek_OpenShortcut",
         "ToolSeek_CtrlSpaceShortcut",  # legacy object name
         "FCSearch_CtrlSpaceShortcut",  # pre-rename binder
+        "ToolSeek_ShortcutRecorder",  # prefs QKeySequenceEdit
     }
 )
 TOOLSEEK_ACTION_OBJECT_NAMES = frozenset(
@@ -36,6 +37,129 @@ TOOLSEEK_COMMAND_NAMES = frozenset(
         "ToolSeek_Preferences",
     }
 )
+
+
+def is_toolseek_owned_name(name: str) -> bool:
+    """True for ToolSeek binders, menu actions, commands, and recorder widgets."""
+    n = (name or "").strip()
+    if not n:
+        return False
+    if (
+        n in TOOLSEEK_SHORTCUT_OBJECT_NAMES
+        or n in TOOLSEEK_ACTION_OBJECT_NAMES
+        or n in TOOLSEEK_COMMAND_NAMES
+    ):
+        return True
+    return n.startswith("ToolSeek_") or n.startswith("FCSearch_")
+
+
+def _object_name(obj) -> str:
+    try:
+        return (obj.objectName() or "").strip()
+    except Exception:
+        return ""
+
+
+def _iter_parents(obj):
+    cur = obj
+    seen: set[int] = set()
+    while cur is not None:
+        ident = id(cur)
+        if ident in seen:
+            break
+        seen.add(ident)
+        yield cur
+        try:
+            cur = cur.parent()
+        except Exception:
+            break
+
+
+def _owned_by_ignored_object(obj, ignore_objects) -> bool:
+    if not ignore_objects:
+        return False
+    ignore_ids = {id(item) for item in ignore_objects if item is not None}
+    if not ignore_ids:
+        return False
+    return any(id(ancestor) in ignore_ids for ancestor in _iter_parents(obj))
+
+
+def qshortcut_should_skip(sc, *, ignore_objects=()) -> bool:
+    """True if *sc* is ToolSeek-owned, disabled, or an unnamed leftover.
+
+    Unnamed QShortcuts are FreeCAD/recorder leftovers (often Ctrl+Space).
+    Startup install deletes them; conflict checks must not treat them as
+    third-party bindings or Reset cannot restore the default.
+    """
+    try:
+        if hasattr(sc, "isEnabled") and not sc.isEnabled():
+            return True
+    except Exception:
+        pass
+    name = _object_name(sc)
+    if not name:
+        return True
+    if is_toolseek_owned_name(name):
+        return True
+    if _owned_by_ignored_object(sc, ignore_objects):
+        return True
+    for ancestor in _iter_parents(sc):
+        if is_toolseek_owned_name(_object_name(ancestor)):
+            return True
+    return False
+
+
+def qaction_should_skip(action, *, ignore_objects=()) -> bool:
+    """True if *action* is a ToolSeek menu/command action."""
+    name = _object_name(action)
+    if is_toolseek_owned_name(name):
+        return True
+    try:
+        text = (action.text() or "").replace("&", "").strip()
+    except Exception:
+        text = ""
+    if text.casefold().startswith("toolseek"):
+        return True
+    return _owned_by_ignored_object(action, ignore_objects)
+
+
+def clear_unnamed_shortcuts_for_sequence(mw, sequence: str) -> int:
+    """Remove unnamed QShortcuts matching *sequence* (startup leftovers).
+
+    FreeCAD / prior binders sometimes leave an unnamed Ctrl+Space QShortcut.
+    Treating that as a hard conflict left ToolSeek with no binding at all.
+    Named foreign shortcuts are left untouched.
+    """
+    target = normalize_shortcut(sequence)
+    if not target or mw is None:
+        return 0
+    try:
+        shortcuts = list(mw.findChildren(QShortcut))
+    except Exception:
+        return 0
+    removed = 0
+    for sc in shortcuts:
+        try:
+            name = _object_name(sc)
+        except Exception:
+            continue
+        if name:
+            # Keep named binders (including ToolSeek's own) intact.
+            continue
+        try:
+            key = sc.key()
+        except Exception:
+            continue
+        if not sequences_match(key, target):
+            continue
+        try:
+            if hasattr(sc, "setEnabled"):
+                sc.setEnabled(False)
+            sc.deleteLater()
+            removed += 1
+        except Exception:
+            continue
+    return removed
 
 
 def normalize_shortcut(text: str) -> str:
@@ -117,11 +241,15 @@ def find_shortcut_conflicts(
     sequence: str,
     *,
     ignore_sequences: tuple[str, ...] | list[str] | None = None,
+    ignore_objects: tuple | list | None = None,
 ) -> list[str]:
     """Return human-readable conflict labels for *sequence* on *mw*.
 
-    Ignores ToolSeek's own QShortcut / menu actions / commands so rebinding the
-    same or a new chord does not false-positive on ToolSeek itself. Optional
+    Ignores ToolSeek's own QShortcut / menu actions / commands (by objectName,
+    parent chain, and command id) so rebinding or Reset is not a false
+    positive. Unnamed leftover QShortcuts are ignored (cleared on apply).
+    Optional *ignore_objects* skips those Qt objects and their descendants
+    (the prefs recorder, the live ToolSeek binder). Optional
     *ignore_sequences* are additional chords to skip (normally unused).
     """
     target = normalize_shortcut(sequence)
@@ -157,38 +285,25 @@ def find_shortcut_conflicts(
             return False
         return True
 
+    skipped = tuple(ignore_objects or ())
+
     if mw is not None:
         try:
             for sc in list(mw.findChildren(QShortcut)):
-                try:
-                    name = sc.objectName() or ""
-                except Exception:
-                    name = ""
-                if name in TOOLSEEK_SHORTCUT_OBJECT_NAMES:
+                if qshortcut_should_skip(sc, ignore_objects=skipped):
                     continue
-                try:
-                    if hasattr(sc, "isEnabled") and not sc.isEnabled():
-                        continue
-                except Exception:
-                    pass
                 try:
                     key = sc.key()
                 except Exception:
                     continue
                 if _matches_target(key):
-                    _add(f"QShortcut ({name or 'unnamed'})")
+                    _add(f"QShortcut ({_object_name(sc) or 'unnamed'})")
         except Exception:
             pass
 
         try:
             for action in list(mw.findChildren(QAction)):
-                try:
-                    name = action.objectName() or ""
-                except Exception:
-                    name = ""
-                if name in TOOLSEEK_ACTION_OBJECT_NAMES:
-                    continue
-                if name in TOOLSEEK_SHORTCUT_OBJECT_NAMES:
+                if qaction_should_skip(action, ignore_objects=skipped):
                     continue
                 for seq in _iter_action_sequences(action):
                     if _matches_target(seq):
@@ -207,7 +322,7 @@ def find_shortcut_conflicts(
             names = []
 
     for cmd_name in names:
-        if cmd_name in TOOLSEEK_COMMAND_NAMES:
+        if is_toolseek_owned_name(cmd_name):
             continue
         try:
             cmd = Gui.Command.get(cmd_name)

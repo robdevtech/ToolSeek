@@ -16,6 +16,7 @@ from .shortcut_edit import (
     create_reset_shortcut_button,
     create_shortcut_recorder,
     recorded_shortcut_text,
+    reset_recorded_shortcut,
     set_recorded_shortcut,
 )
 
@@ -96,9 +97,7 @@ class PreferencesDialog(QtWidgets.QDialog):
         self._load()
 
     def _reset_shortcut_field(self) -> None:
-        set_recorded_shortcut(
-            self.open_shortcut, prefs.DEFAULT_OPEN_SHORTCUT, validate=True
-        )
+        reset_recorded_shortcut(self.open_shortcut)
 
     def _load(self) -> None:
         style = prefs.result_style()

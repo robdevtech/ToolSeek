@@ -35,6 +35,7 @@ from .command import (
 )
 from .shortcut_conflicts import (
     TOOLSEEK_SHORTCUT_OBJECT_NAMES,
+    clear_unnamed_shortcuts_for_sequence,
     find_shortcut_conflicts,
     normalize_shortcut,
     sequences_match,
@@ -707,6 +708,7 @@ def _find_toolseek_shortcut(mw):
     """Return our QShortcut if present (current or legacy object name)."""
     if not _alive(mw):
         return None
+    # Prefer the current name; never reuse the pre-rename FCSearch binder.
     for name in (_SHORTCUT_OBJECT_NAME, "ToolSeek_CtrlSpaceShortcut"):
         try:
             existing = mw.findChild(QShortcut, name)
@@ -740,46 +742,6 @@ def _clear_legacy_fcsearch_shortcut(mw) -> None:
             sc.deleteLater()
         except Exception:
             continue
-
-
-def _clear_unnamed_shortcuts_for_sequence(mw, sequence: str) -> int:
-    """Remove unnamed QShortcuts matching *sequence* (startup leftovers).
-
-    FreeCAD / prior binders sometimes leave an unnamed Ctrl+Space QShortcut.
-    Treating that as a hard conflict left ToolSeek with no binding at all.
-    Named foreign shortcuts are left untouched.
-    """
-    target = normalize_shortcut(sequence)
-    if not target or not _alive(mw):
-        return 0
-    try:
-        shortcuts = list(mw.findChildren(QShortcut))
-    except Exception:
-        return 0
-    removed = 0
-    for sc in shortcuts:
-        if not _alive(sc):
-            continue
-        try:
-            name = (sc.objectName() or "").strip()
-        except Exception:
-            continue
-        if name:
-            # Keep named binders (including ToolSeek's own) intact.
-            continue
-        try:
-            key = sc.key()
-        except Exception:
-            continue
-        if not sequences_match(key, target):
-            continue
-        try:
-            sc.setEnabled(False)
-            sc.deleteLater()
-            removed += 1
-        except Exception:
-            continue
-    return removed
 
 
 def _conflict_detail(conflicts: list[str]) -> str:
@@ -878,11 +840,15 @@ def try_set_open_shortcut(
         _update_tools_action_tip(mw)
         return True
 
-    # Unnamed Ctrl+Space (etc.) leftovers must not block first install.
-    _clear_unnamed_shortcuts_for_sequence(mw, desired)
+    # Unnamed Ctrl+Space (etc.) leftovers must not block install / Reset.
+    clear_unnamed_shortcuts_for_sequence(mw, desired)
 
     try:
-        conflicts = find_shortcut_conflicts(mw, desired)
+        conflicts = find_shortcut_conflicts(
+            mw,
+            desired,
+            ignore_objects=(existing,) if existing is not None else (),
+        )
     except Exception as exc:  # noqa: BLE001
         App.Console.PrintWarning(
             f"ToolSeek: shortcut conflict scan failed ({exc}); "
